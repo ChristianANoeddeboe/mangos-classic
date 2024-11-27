@@ -292,7 +292,16 @@ void AuctionHouseMgr::LoadAuctionItems()
             delete item;
             continue;
         }
-        AddAItem(item);
+        try
+        {
+            AddAItem(item);
+        }
+        catch (const std::exception &e)
+        {
+            sLog.outError("Failed to add auction item (GUID: %u): %s", item_guid, e.what());
+            // Throw exception to prevent memory leak
+            throw;
+        }
 
         ++count;
     } while (queryResult->NextRow());
