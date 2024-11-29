@@ -295,6 +295,7 @@ void AuctionHouseMgr::LoadAuctionItems()
         try
         {
             AddAItem(item);
+            sLog.outString("Auction item (GUID: %u) loaded", item_guid);
         }
         catch (const std::exception &e)
         {
