@@ -254,6 +254,7 @@ void AuctionHouseMgr::SendAuctionExpiredMail(AuctionEntry *auction)
 
 void AuctionHouseMgr::LoadAuctionItems()
 {
+    sLog.outString("Loading auction items...");
     // data needs to be at first place for Item::LoadFromDB 0        1            2                3      4         5        6      7             8                 9           10          11        12
     auto queryResult = CharacterDatabase.Query("SELECT itemEntry, creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomPropertyId, durability, itemTextId, itemguid, item_template FROM auction JOIN item_instance ON itemguid = guid");
 

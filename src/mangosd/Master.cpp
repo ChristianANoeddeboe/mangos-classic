@@ -59,42 +59,42 @@ volatile bool Master::m_canBeKilled = false;
 
 class FreezeDetectorRunnable : public MaNGOS::Runnable
 {
-    public:
-        FreezeDetectorRunnable() { _delaytime = 0; }
-        uint32 m_loops, m_lastchange;
-        uint32 w_loops, w_lastchange;
-        uint32 _delaytime;
-        void SetDelayTime(uint32 t) { _delaytime = t; }
-        void run(void)
+public:
+    FreezeDetectorRunnable() { _delaytime = 0; }
+    uint32 m_loops, m_lastchange;
+    uint32 w_loops, w_lastchange;
+    uint32 _delaytime;
+    void SetDelayTime(uint32 t) { _delaytime = t; }
+    void run(void)
+    {
+        if (!_delaytime)
+            return;
+        sLog.outString("Starting up anti-freeze thread (%u seconds max stuck time)...", _delaytime / 1000);
+        m_loops = 0;
+        w_loops = 0;
+        m_lastchange = 0;
+        w_lastchange = 0;
+        while (!World::IsStopped())
         {
-            if (!_delaytime)
-                return;
-            sLog.outString("Starting up anti-freeze thread (%u seconds max stuck time)...", _delaytime / 1000);
-            m_loops = 0;
-            w_loops = 0;
-            m_lastchange = 0;
-            w_lastchange = 0;
-            while (!World::IsStopped())
+            MaNGOS::Thread::Sleep(1000);
+
+            uint32 curtime = WorldTimer::getMSTime();
+
+            // normal work
+            if (w_loops != World::m_worldLoopCounter)
             {
-                MaNGOS::Thread::Sleep(1000);
-
-                uint32 curtime = WorldTimer::getMSTime();
-
-                // normal work
-                if (w_loops != World::m_worldLoopCounter)
-                {
-                    w_lastchange = curtime;
-                    w_loops = World::m_worldLoopCounter;
-                }
-                // possible freeze
-                else if (WorldTimer::getMSTimeDiff(w_lastchange, curtime) > _delaytime)
-                {
-                    sLog.outError("World Thread hangs, kicking out server!");
-                    *((uint32 volatile*)nullptr) = 0;          // bang crash
-                }
+                w_lastchange = curtime;
+                w_loops = World::m_worldLoopCounter;
             }
-            sLog.outString("Anti-freeze thread exiting without problems.");
+            // possible freeze
+            else if (WorldTimer::getMSTimeDiff(w_lastchange, curtime) > _delaytime)
+            {
+                sLog.outError("World Thread hangs, kicking out server!");
+                *((uint32 volatile *)nullptr) = 0; // bang crash
+            }
         }
+        sLog.outString("Anti-freeze thread exiting without problems.");
+    }
 };
 
 /// Main function
@@ -121,6 +121,8 @@ int Master::Run()
         Log::WaitBeforeContinueIfNeed();
         return 1;
     }
+
+    sLog.outString("Running Angercraft variant of MaNGOS");
 
     ///- Initialize the World
     sWorld.SetInitialWorldSettings();
@@ -152,10 +154,10 @@ int Master::Run()
     sWorld.StartLFGQueueThread();
     sWorld.StartBGQueueThread();
 
-    MaNGOS::Thread* cliThread = nullptr;
+    MaNGOS::Thread *cliThread = nullptr;
 
 #ifdef _WIN32
-    if (sConfig.GetBoolDefault("Console.Enable", true) && (m_ServiceStatus == -1)/* need disable console in service mode*/)
+    if (sConfig.GetBoolDefault("Console.Enable", true) && (m_ServiceStatus == -1) /* need disable console in service mode*/)
 #else
     if (sConfig.GetBoolDefault("Console.Enable", true))
 #endif
@@ -177,7 +179,7 @@ int Master::Run()
 
             if (GetProcessAffinityMask(hProcess, &appAff, &sysAff))
             {
-                ULONG_PTR curAff = Aff & appAff;            // remove non accessible processors
+                ULONG_PTR curAff = Aff & appAff; // remove non accessible processors
 
                 if (!curAff)
                 {
@@ -196,7 +198,7 @@ int Master::Run()
 
         bool Prio = sConfig.GetBoolDefault("ProcessPriority", false);
 
-//        if(Prio && (m_ServiceStatus == -1)/* need set to default process priority class in service mode*/)
+        //        if(Prio && (m_ServiceStatus == -1)/* need set to default process priority class in service mode*/)
         if (Prio)
         {
             if (SetPriorityClass(hProcess, HIGH_PRIORITY_CLASS))
@@ -209,10 +211,10 @@ int Master::Run()
 #endif
 
     ///- Start up freeze catcher thread
-    MaNGOS::Thread* freeze_thread = nullptr;
+    MaNGOS::Thread *freeze_thread = nullptr;
     if (uint32 freeze_delay = sConfig.GetIntDefault("MaxCoreStuckTime", 0))
     {
-        FreezeDetectorRunnable* fdr = new FreezeDetectorRunnable();
+        FreezeDetectorRunnable *fdr = new FreezeDetectorRunnable();
         fdr->SetDelayTime(freeze_delay * 1000);
         freeze_thread = new MaNGOS::Thread(fdr);
         freeze_thread->setPriority(MaNGOS::Priority_Highest);
@@ -231,7 +233,8 @@ int Master::Run()
 
         std::vector<std::thread> threads;
         for (int32 i = 0; i < networkThreadCount; ++i)
-            threads.emplace_back([&]() { m_service.run(); });
+            threads.emplace_back([&]()
+                                 { m_service.run(); });
 
         std::unique_ptr<MaNGOS::AsyncListener<RASocket>> raListener;
         std::string raBindIp = sConfig.GetStringDefault("Ra.IP", "0.0.0.0");
@@ -241,7 +244,8 @@ int Master::Run()
         if (raEnable)
         {
             raListener.reset(new MaNGOS::AsyncListener<RASocket>(m_raService, raBindIp, raPort));
-            m_raThread = std::thread([this]() { m_raService.run(); });
+            m_raThread = std::thread([this]()
+                                     { m_raService.run(); });
         }
 
         std::unique_ptr<SOAPThread> soapThread;
@@ -307,7 +311,7 @@ int Master::Run()
 #ifdef _WIN32
         // send keyboard input to safely unblock the CLI thread that is waiting for an user input
         HANDLE hStdIn = GetStdHandle(STD_INPUT_HANDLE);
-        INPUT_RECORD ir[2] = { 0 };
+        INPUT_RECORD ir[2] = {0};
 
         ir[0].EventType = KEY_EVENT;
         ir[0].Event.KeyEvent.bKeyDown = TRUE;
@@ -512,15 +516,15 @@ void Master::_OnSignal(int s)
 {
     switch (s)
     {
-        case SIGINT:
-            World::StopNow(RESTART_EXIT_CODE);
-            break;
-        case SIGTERM:
+    case SIGINT:
+        World::StopNow(RESTART_EXIT_CODE);
+        break;
+    case SIGTERM:
 #ifdef _WIN32
-        case SIGBREAK:
+    case SIGBREAK:
 #endif
-            World::StopNow(SHUTDOWN_EXIT_CODE);
-            break;
+        World::StopNow(SHUTDOWN_EXIT_CODE);
+        break;
     }
 
     // give a 30 sec timeout in case of Master cannot finish properly
