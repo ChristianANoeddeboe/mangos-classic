@@ -296,13 +296,13 @@ void AuctionHouseMgr::LoadAuctionItems()
         try
         {
             AddAItem(item);
-            sLog.outString("Auction item (GUID: %u) loaded", item_guid);
         }
         catch (const std::exception &e)
         {
             sLog.outError("Failed to add auction item (GUID: %u): %s", item_guid, e.what());
-            // Throw exception to prevent memory leak
-            throw;
+            CharacterDatabase.PExecute("DELETE FROM item_instance WHERE guid='%u'", item_guid);
+            delete item;
+            continue;
         }
 
         ++count;
@@ -432,8 +432,15 @@ void AuctionHouseMgr::LoadAuctions()
 void AuctionHouseMgr::AddAItem(Item *it)
 {
     MANGOS_ASSERT(it);
-    MANGOS_ASSERT(mAitems.find(it->GetGUIDLow()) == mAitems.end());
-    mAitems[it->GetGUIDLow()] = it;
+    if (mAitems.find(it->GetGUIDLow()) == mAitems.end())
+    {
+        mAitems[it->GetGUIDLow()] = it;
+    }
+    else
+    {
+        sLog.outError("AuctionHouseMgr::AddAItem: Item %u already exists in auction items list", it->GetGUIDLow());
+        throw std::logic_error("Item already exists in auction items list");
+    }
 }
 
 bool AuctionHouseMgr::RemoveAItem(uint32 id)
