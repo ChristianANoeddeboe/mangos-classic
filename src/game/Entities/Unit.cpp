@@ -649,6 +649,11 @@ bool Unit::UpdateMeleeAttackingState()
     if (GetTypeId() != TYPEID_PLAYER && (!static_cast<Creature*>(this)->CanInitiateAttack()))
         return false;
 
+    if (m_extraAttacks)
+    {
+        DoExtraAttacks(victim);
+    }
+
     if (!isAttackReady(BASE_ATTACK) && !(isAttackReady(OFF_ATTACK) && hasOffhandWeaponForAttack()))
         return false;
 
@@ -1402,6 +1407,11 @@ void Unit::JustKilledCreature(Unit* killer, Creature* victim, Player* responsibl
 
     bool isPet = victim->IsPet();
 
+    /* ******************************** Prepare loot if can ************************************ */
+    // only lootable if it has loot or can drop gold, must be done before threat list is cleared
+    if (!isPet && !victim->GetSettings().HasFlag(CreatureStaticFlags::DESPAWN_INSTANTLY))
+        victim->PrepareBodyLootState(killer);
+
     /* ********************************* Set Death finally ************************************* */
     DEBUG_FILTER_LOG(LOG_FILTER_DAMAGE, "SET JUST_DIED");
     victim->SetDeathState(JUST_DIED);                       // if !spiritOfRedemtionTalentReady always true for unit
@@ -1417,11 +1427,7 @@ void Unit::JustKilledCreature(Unit* killer, Creature* victim, Player* responsibl
     if (isPet)
         return;                                             // Pets might have been unsummoned at this place, do not handle them further!
 
-    /* ******************************** Prepare loot if can ************************************ */
     victim->DeleteThreatList();
-
-    // only lootable if it has loot or can drop gold
-    victim->PrepareBodyLootState();
 }
 
 void Unit::PetOwnerKilledUnit(Unit* pVictim)
@@ -2599,18 +2605,26 @@ void Unit::AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType, bool ext
     if (attType == RANGED_ATTACK)
         return;                                             // ignore ranged case
 
-    // melee attack spellInfo casted at main hand attack only - but only if its not already being executed
+    auto resetLeashFunc = [&]()
+    {
+        if (!IsPlayerControlled() && m_lastMoveTime + 3s < GetMap()->GetCurrentClockTime() && GetVictim() && !GetVictim()->IsMoving())
+            GetCombatManager().TriggerCombatTimer(false);
+    };
+
+    // melee attack spell casted at main hand attack only - but only if its not already being executed
     if (attType == BASE_ATTACK && m_currentSpells[CURRENT_MELEE_SPELL] && !m_currentSpells[CURRENT_MELEE_SPELL]->IsExecutedCurrently())
     {
         SpellCastResult result = m_currentSpells[CURRENT_MELEE_SPELL]->cast();
         if (result == SPELL_CAST_OK)
         {
             RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_ATTACKING);
+            resetLeashFunc();
             return;
         }
     }
 
     RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_ATTACKING);
+    resetLeashFunc();
 
     CalcDamageInfo meleeDamageInfo;
     CalculateMeleeDamage(pVictim, &meleeDamageInfo, attType);
@@ -2645,15 +2659,32 @@ void Unit::AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType, bool ext
                          GetGUIDLow(), pVictim->GetGUIDLow(), pVictim->GetTypeId(), meleeDamageInfo.totalDamage, totalAbsorb, meleeDamageInfo.blocked_amount, totalResist);
 }
 
-void Unit::DoExtraAttacks(Unit* pVictim)
+void Unit::DoExtraAttacks(Unit* victim)
 {
+    Unit* attackTarget = nullptr;
+    if (m_extraAttackGuid)
+    {
+        Unit* target = GetMap()->GetUnit(m_extraAttackGuid);
+        if (target && CanReachWithMeleeAttack(target) && target->IsAlive() && CanAttackInCombat(target, false, false))
+            attackTarget = target;
+    }
+    if (!attackTarget && GetVictim())
+    {
+        Unit* target = GetVictim();
+        if (CanReachWithMeleeAttack(target) && target->IsAlive() && CanAttackInCombat(target, false, false))
+            attackTarget = target;
+    }
+    if (!attackTarget)
+        return;
+
     m_extraAttacksExecuting = true;
     while (m_extraAttacks)
     {
-        AttackerStateUpdate(pVictim, BASE_ATTACK, true);
+        AttackerStateUpdate(attackTarget, BASE_ATTACK, true);
         if (m_extraAttacks > 0)
             --m_extraAttacks;
     }
+    m_extraAttackGuid = ObjectGuid();
     m_extraAttacksExecuting = false;
 }
 
@@ -6913,7 +6944,7 @@ void Unit::EnergizeBySpell(Unit* victim, SpellEntry const* spellInfo, uint32 dam
  * @param damagetype what kind of damage
  * @param donePart calculate for done or taken
  */
-int32 Unit::SpellBonusWithCoeffs(SpellEntry const* spellProto, SpellEffectIndex effectIndex, int32 total, int32 benefit, int32 ap_benefit,  DamageEffectType damagetype, bool donePart)
+int32 Unit::SpellBonusWithCoeffs(SpellEntry const* spellProto, SpellEffectIndex effectIndex, int32 total, int32 benefit, int32 ap_benefit, bool donePart)
 {
     float coeff = 0.f; // no coefficient by default
     // does not apply to creatures
@@ -7023,7 +7054,7 @@ uint32 Unit::SpellDamageBonusDone(Unit* victim, SpellSchoolMask schoolMask, Spel
         DoneAdvertisedBenefit += ((Pet*)this)->GetBonusDamage();
 
     // apply ap bonus and benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
-    DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneAdvertisedBenefit, 0, damagetype, true);
+    DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneAdvertisedBenefit, 0, true);
 
     float tmpDamage = (int32(pdamage) + DoneTotal * int32(stack)) * DoneTotalMod;
     // apply spellmod to Done damage (flat and pct)
@@ -7061,7 +7092,7 @@ uint32 Unit::SpellDamageBonusTaken(Unit* caster, SpellSchoolMask schoolMask, Spe
 
     // apply benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
     if (caster)
-        TakenTotal = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, TakenTotal, TakenAdvertisedBenefit, 0, damagetype, false);
+        TakenTotal = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, TakenTotal, TakenAdvertisedBenefit, 0, false);
 
     float tmpDamage = (int32(pdamage) + TakenTotal * int32(stack)) * TakenTotalMod;
 
@@ -7158,7 +7189,7 @@ uint32 Unit::SpellHealingBonusDone(Unit* victim, SpellEntry const* spellInfo, Sp
     }
 
     // apply ap bonus and benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
-    DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneAdvertisedBenefit, 0, damagetype, true);
+    DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneAdvertisedBenefit, 0, true);
 
     // use float as more appropriate for negative values and percent applying
     float heal = (healamount + DoneTotal * int32(stack)) * DoneTotalMod;
@@ -7173,7 +7204,7 @@ uint32 Unit::SpellHealingBonusDone(Unit* victim, SpellEntry const* spellInfo, Sp
  * Calculates target part of healing spellInfo bonuses,
  * will be called on each tick for periodic damage over time auras
  */
-uint32 Unit::SpellHealingBonusTaken(Unit* caster, SpellEntry const* spellInfo, SpellEffectIndex effectIndex, int32 healamount, DamageEffectType damagetype, uint32 stack)
+uint32 Unit::SpellHealingBonusTaken(Unit* caster, SpellEntry const* spellInfo, SpellEffectIndex effectIndex, int32 healamount, DamageEffectType /*damagetype*/, uint32 stack)
 {
     float  TakenTotalMod = 1.0f;
 
@@ -7208,7 +7239,7 @@ uint32 Unit::SpellHealingBonusTaken(Unit* caster, SpellEntry const* spellInfo, S
     }
 
     // apply benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
-    TakenTotal = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, TakenTotal, TakenAdvertisedBenefit, 0, damagetype, false);
+    TakenTotal = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, TakenTotal, TakenAdvertisedBenefit, 0, false);
 
     // use float as more appropriate for negative values and percent applying
     float heal = (healamount + TakenTotal * int32(stack)) * TakenTotalMod;
@@ -7491,7 +7522,7 @@ uint32 Unit::MeleeDamageBonusDone(Unit* victim, uint32 pdamage, WeaponAttackType
     if (!isWeaponDamageBasedSpell || (spellInfo && (schoolMask &~ SPELL_SCHOOL_MASK_NORMAL) !=0))
     {
         // apply ap bonus and benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
-        DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneFlat, APbonus, damagetype, true);
+        DoneTotal = SpellBonusWithCoeffs(spellInfo, effectIndex, DoneTotal, DoneFlat, APbonus, true);
     }
     // weapon damage based spells
     else if (isWeaponDamageBasedSpell && (APbonus || DoneFlat))
@@ -7593,7 +7624,7 @@ uint32 Unit::MeleeDamageBonusTaken(Unit* caster, uint32 pdamage, WeaponAttackTyp
     {
         // apply benefit affected by spellInfo power implicit coeffs and spellInfo level penalties
         if (caster)
-            TakenAdvertisedBenefit = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, 0, TakenAdvertisedBenefit, 0, damagetype, false);
+            TakenAdvertisedBenefit = caster->SpellBonusWithCoeffs(spellInfo, effectIndex, 0, TakenAdvertisedBenefit, 0, false);
     }
 
     if (!flat)
@@ -7869,7 +7900,7 @@ void Unit::SetInCombatState(bool PvP, Unit* enemy)
                     controller->AddThreat(enemy);
                     enemy->AddThreat(controller);
                     enemy->SetInCombatWith(controller);
-                    if (PvP || creatureNotInCombat)
+                    if (PvP)
                         enemy->GetCombatManager().TriggerCombatTimer(controller);
                 }
                 else
@@ -7917,6 +7948,13 @@ void Unit::SetInCombatState(bool PvP, Unit* enemy)
 
         if (creature->AI())
             creature->AI()->EnterCombat(enemy);
+
+        // can be overriden by spellcast on Aggro hook, hence must be done after EnterCombat hook
+        if (!creature->GetCreatedBySpellId() && creature->GetSettings().HasFlag(CreatureStaticFlags::NO_MELEE_FLEE) && !creature->IsRooted() && !creature->IsInPanic() && !creature->IsNonMeleeSpellCasted(false) && enemy && enemy->IsPlayerControlled())
+        {
+            creature->AI()->DoFlee(30000);
+            creature->AI()->SetAIOrder(ORDER_CRITTER_FLEE); // mark as critter flee for custom handling
+        }
 
         // Some bosses are set into combat with zone
         if (GetMap()->IsDungeon() && (creature->GetCreatureInfo()->ExtraFlags & CREATURE_EXTRA_FLAG_AGGRO_ZONE) && enemy && enemy->IsControlledByPlayer())
@@ -10996,6 +11034,8 @@ void Unit::UpdateSplinePosition(bool relocateOnly)
             pos.o = (angle >= 0 ? angle : ((2 * M_PI_F) + angle));
         }
     }
+
+    m_lastMoveTime = GetMap()->GetCurrentClockTime();
 
     if (relocateOnly)
     {
