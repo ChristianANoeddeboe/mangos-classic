@@ -232,8 +232,9 @@ struct EquipmentInfoRaw
 
 enum SpawnFlags
 {
-    SPAWN_FLAG_RUN_ON_SPAWN = 0x01,
-    SPAWN_FLAG_HOVER        = 0x02,
+    SPAWN_FLAG_RUN_ON_SPAWN     = 0x01,
+    SPAWN_FLAG_HOVER            = 0x02,
+    SPAWN_FLAG_DISABLE_GRAVITY  = 0x04,
 };
 
 struct CreatureSpawnTemplate
@@ -252,6 +253,7 @@ struct CreatureSpawnTemplate
 
     bool IsRunning() const { return (spawnFlags & SPAWN_FLAG_RUN_ON_SPAWN) != 0; }
     bool IsHovering() const { return (spawnFlags & SPAWN_FLAG_HOVER) != 0; }
+    bool IsGravityDisabled() const { return (spawnFlags & SPAWN_FLAG_DISABLE_GRAVITY) != 0; }
 };
 
 // from `creature` table
@@ -613,6 +615,7 @@ class Creature : public Unit
         bool IsTrainerOf(Player* pPlayer, bool msg) const;
         bool CanInteractWithBattleMaster(Player* pPlayer, bool msg) const;
         bool CanTrainAndResetTalentsOf(Player* pPlayer) const;
+        bool isInvisibleForAlive() const override;
 
         void FillGuidsListFromThreatList(GuidVector& guids, uint32 maxamount = 0);
 
@@ -679,6 +682,7 @@ class Creature : public Unit
         bool UpdateAllStats() override;
         void UpdateResistances(uint32 school) override;
         void UpdateArmor() override;
+        void UpdateMaxHealth() override;
         void UpdateAttackPowerAndDamage(bool ranged = false) override;
         void UpdateDamagePhysical(WeaponAttackType attType) override;
         virtual float GetConditionalTotalPhysicalDamageModifier(WeaponAttackType type) const;
@@ -901,6 +905,9 @@ class Creature : public Unit
 
         void SetModelRunSpeed(float runSpeed) override { m_modelRunSpeed = runSpeed; }
 
+        bool IsCombatOnlyStealth() const { return m_combatOnlyStealth; }
+        void SetCombatOnlyStealth(bool state) { m_combatOnlyStealth = state; }
+
     protected:
         bool CreateFromProto(uint32 dbGuid, uint32 guidlow, CreatureInfo const* cinfo, const CreatureData* data = nullptr, GameEventCreatureData const* eventData = nullptr);
         bool InitEntry(uint32 Entry, const CreatureData* data = nullptr, GameEventCreatureData const* eventData = nullptr);
@@ -978,12 +985,16 @@ class Creature : public Unit
 
         bool m_imposedCooldown;
 
+        float m_healthMultiplier;
+
     private:
         GridReference<Creature> m_gridRef;
         CreatureInfo const* m_creatureInfo;
 
         CreatureInfo const* m_mountInfo;
         float m_modelRunSpeed;
+
+        bool m_combatOnlyStealth;
 };
 
 class ForcedDespawnDelayEvent : public BasicEvent

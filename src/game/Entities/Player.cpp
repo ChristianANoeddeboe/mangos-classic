@@ -581,6 +581,7 @@ Player::Player(WorldSession* session): Unit(), m_taxiTracker(*this), m_mover(thi
     m_canBlock = false;
     m_ammoDPSMin = 0.0f;
     m_ammoDPSMax = 0.0f;
+    m_highestAmmoMod = 0;
 
     m_temporaryUnsummonedPetNumber = 0;
     m_BGPetSpell = 0;
@@ -5828,7 +5829,7 @@ void Player::LearnDefaultSkills()
     }
 }
 
-uint32 Player::GetSpellRank(SpellEntry const* spellInfo)
+uint32 Player::GetSpellRank(SpellEntry const* spellInfo) const
 {
     SkillLineAbilityMapBounds bounds = sSpellMgr.GetSkillLineAbilityMapBoundsBySpellId(spellInfo->Id);
     if (bounds.first != bounds.second)
@@ -14287,7 +14288,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     if (time_diff > 15 * MINUTE)
         soberFactor = 0;
     else
-        soberFactor = 1 - time_diff / (15.0f * MINUTE);
+        soberFactor = 1 - time_diff / (15 * MINUTE);
     uint16 newDrunkenValue = uint16(soberFactor * m_drunk);
     SetDrunkValue(newDrunkenValue);
 
@@ -17846,7 +17847,7 @@ void Player::BeforeVisibilityDestroy(Creature* creature)
 {
     if (creature->IsInCombat() && IsInCombat())
     {
-        if (!creature->GetMap()->IsDungeon() && creature->getThreatManager().HasThreat(this, true))
+        if (!creature->GetMap()->IsDungeon() && !creature->IsCombatOnlyStealth() && creature->getThreatManager().HasThreat(this, true))
             getHostileRefManager().deleteReference(creature);
         if (Pet* pet = GetPet())
             if (pet->GetVictim() == creature)
@@ -20464,4 +20465,21 @@ uint32 Player::LookupHighestLearnedRank(uint32 spellId)
             break;
     } while ((higherRank = sSpellMgr.GetNextSpellInChain(ownedRank)));
     return ownedRank;
+}
+
+void Player::UpdateRangedWeaponDependantAmmoHasteAura()
+{
+    int32 highest = 0;
+    Item* weapon = GetWeaponForAttack(RANGED_ATTACK);
+    if (weapon)
+        highest = GetMaxPositiveAuraModifierByItemClass(SPELL_AURA_MOD_RANGED_AMMO_HASTE, weapon);
+
+    if (highest != GetHighestAmmoMod())
+    {
+        if (GetHighestAmmoMod() > 0)
+            ApplyAttackTimePercentMod(RANGED_ATTACK, float(GetHighestAmmoMod()), false);
+        if (highest > 0)
+            ApplyAttackTimePercentMod(RANGED_ATTACK, float(highest), true);
+        SetHighestAmmoMod(highest);
+    }
 }

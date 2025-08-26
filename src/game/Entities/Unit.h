@@ -1775,6 +1775,7 @@ class Unit : public WorldObject
         bool IsMoving() const { return m_movementInfo.HasMovementFlag(movementFlagsMask); }
         bool IsMovingForward() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING_FORWARD); }
         bool IsLevitating() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING); }
+        bool IsHovering() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_HOVER); }
         bool IsWalking() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE); }
         bool IsRooted() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_ROOT); }
         bool IsFalling() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_JUMPING); }
@@ -2051,7 +2052,7 @@ class Unit : public WorldObject
         bool isVisibleForInState(Player const* u, WorldObject const* viewPoint, bool inVisibleList) const override;
         // function for low level grid visibility checks in player/creature cases
         virtual bool IsVisibleInGridForPlayer(Player* pl) const = 0;
-        bool isInvisibleForAlive() const;
+        virtual bool isInvisibleForAlive() const;
 
         TrackedAuraTargetMap&       GetTrackedAuraTargets(TrackedAuraType type)       { return m_trackedAuraTargets[type]; }
         TrackedAuraTargetMap const& GetTrackedAuraTargets(TrackedAuraType type) const { return m_trackedAuraTargets[type]; }
@@ -2111,6 +2112,8 @@ class Unit : public WorldObject
         float GetTotalAuraMultiplierByMiscValue(AuraType auratype, int32 misc_value) const;
         int32 GetMaxPositiveAuraModifierByMiscValue(AuraType auratype, int32 misc_value) const;
         int32 GetMaxNegativeAuraModifierByMiscValue(AuraType auratype, int32 misc_value) const;
+
+        int32 GetMaxPositiveAuraModifierByItemClass(AuraType auratype, Item* weapon) const;
 
         Aura* GetDummyAura(uint32 spell_id) const;
 
@@ -2398,7 +2401,7 @@ class Unit : public WorldObject
         void UpdateAllowedPositionZ(float x, float y, float& z, Map* atMap = nullptr) const override;
         void AdjustZForCollision(float x, float y, float& z, float halfHeight) const override;
 
-        virtual uint32 GetSpellRank(SpellEntry const* spellInfo);
+        virtual uint32 GetSpellRank(SpellEntry const* spellInfo) const;
 
         bool HasOverrideScript(uint32 id) const;
         Aura* GetOverrideScript(uint32 id) const;

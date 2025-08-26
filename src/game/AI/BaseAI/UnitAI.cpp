@@ -262,6 +262,7 @@ CanCastResult UnitAI::DoCastSpellIfCan(Unit* target, uint32 spellId, uint32 cast
                     case SPELL_FAILED_TARGET_NO_WEAPONS:
                     case SPELL_FAILED_BAD_TARGETS:
                     case SPELL_FAILED_DONT_REPORT:
+                    case SPELL_FAILED_NOT_BEHIND:
                         canCastResult = CAST_FAIL_MISCELLANEOUS;
                         break;
                     default: break;
@@ -827,10 +828,6 @@ void UnitAI::TimedFleeingEnded()
 
 bool UnitAI::DoFlee(uint32 duration)
 {
-    Unit* victim = m_unit->GetVictim();
-    if (!victim)
-        return false;
-
     if (!duration)
         duration = sWorld.getConfig(CONFIG_UINT32_CREATURE_FAMILY_FLEE_DELAY);
 
